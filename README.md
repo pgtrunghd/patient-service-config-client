@@ -1,8 +1,10 @@
-# Patient Service – Config Client và Profiles (Bài 2, 3)
+# Patient Service – Config Client và Profiles và Refresh (Bài 2–4)
 
 Đề bài 2: https://portal.rikkei.edu.vn/learn/159/homework/8902
 
 Đề bài 3: https://portal.rikkei.edu.vn/learn/159/homework/8903
+
+Đề bài 4: https://portal.rikkei.edu.vn/learn/159/homework/8904
 
 Patient Service lấy cấu hình PostgreSQL từ Config Server khi khởi động bằng
 `spring-cloud-starter-config` và `spring.config.import`. Toàn bộ cấu hình datasource
@@ -79,11 +81,13 @@ Từ thư mục project này:
 ./gradlew bootRun
 ```
 
-File `src/main/resources/application.properties` chỉ chứa đúng:
+File `src/main/resources/application.properties` chứa cấu hình kết nối Config Server
+và mở endpoint refresh cho bài 4:
 
 ```properties
 spring.application.name=patient-service
 spring.config.import=optional:configserver:http://localhost:8888
+management.endpoints.web.exposure.include=refresh
 ```
 
 Không khai báo URL, tài khoản, mật khẩu database hay JPA trong file cục bộ.
@@ -118,8 +122,8 @@ API giữ nguyên từ bài trước:
 
 ## Bài 3 – Chuyển đổi môi trường bằng Profiles
 
-Sử dụng lại Config Server và Patient Service của hai bài trước. Client vẫn chỉ
-có hai dòng trong `application.properties`; không cần sửa mã Java khi chuyển database.
+Sử dụng lại Config Server và Patient Service của hai bài trước. Client vẫn
+giữ cấu hình database trên Git; không cần sửa mã Java khi chuyển database.
 Runtime đã có đủ JDBC driver PostgreSQL và MySQL Connector/J.
 
 | Profile | File trong Git | Cổng ứng dụng | Database mặc định |
@@ -206,11 +210,83 @@ bài nộp vẫn là MySQL 3306 và PostgreSQL 5432. Config Server trả đúng 
 ưu tiên trước file mặc định, và hai ứng dụng kết nối thành công với Hikari.
 Build `clean test bootJar` đạt, ba test controller đạt.
 
+## Bài 4 – Cập nhật lời chào bằng @RefreshScope
+
+Dependency `spring-boot-starter-actuator` mở endpoint `POST /actuator/refresh`.
+`WelcomeController` có `@RefreshScope` và inject `@Value("${app.welcome}")`.
+`GET /welcome` trả plain text UTF-8.
+
+Theo hướng dẫn chi tiết và mẫu code của đề, thuộc tính được dùng là `app.welcome`.
+Các tên `medical.welcome-msg` và `app.welcom` xuất hiện ở phần mô tả không được
+sử dụng để tránh lệch với mẫu code yêu cầu.
+
+File Git `patient-service.properties` chứa lời chào ban đầu:
+
+```properties
+app.welcome=Chào mừng tới BV RikkeiAcademy
+```
+
+Bản mẫu trong repository dùng Unicode escape chuẩn của file `.properties` để
+Config Server đọc đúng tiếng Việt; giá trị trả về qua HTTP vẫn là tiếng Việt có dấu.
+Thuộc tính này nằm ở file mặc định nên cả profile dev/prod đều nhận được.
+
+Quy trình kiểm tra:
+
+1. Chạy `./scripts/prepare-config-repo.sh`, PostgreSQL/MySQL và Config Server.
+2. Chạy Patient Service mặc định hoặc `dev` tại cổng 8081 như các phần trước.
+3. Gọi `curl http://localhost:8081/welcome`, nhận `Chào mừng tới BV RikkeiAcademy`.
+4. Trong kho `medical-config-repo`, sửa `app.welcome` thành
+   `Chào mừng tới BV RikkeiEducation`, rồi `git add` và `git commit`.
+5. Gọi lại `/welcome` trước refresh: giá trị vẫn là lời chào cũ.
+6. Gọi lệnh dưới đây, sau đó `/welcome` trả lời chào mới mà tiến trình vẫn chạy.
+
+```bash
+curl -X POST http://localhost:8081/actuator/refresh
+curl http://localhost:8081/welcome
+```
+
+Để ghi giá trị tiếng Việt bằng Unicode escape, có thể dùng đoạn Python sau trong
+thư mục kho cấu hình rồi commit:
+
+```python
+from pathlib import Path
+p = Path('patient-service.properties')
+value = 'Chào mừng tới BV RikkeiEducation'
+escaped = ''.join(c if ord(c) < 128 else chr(92) + 'u%04x' % ord(c) for c in value)
+p.write_text('\n'.join('app.welcome=' + escaped if line.startswith('app.welcome=') else line
+                       for line in p.read_text().splitlines()) + '\n')
+```
+
+Script tự động thực hiện quy trình trên với Patient Service đang chạy:
+
+```bash
+./scripts/verify-refresh.sh ../medical-config-repo PATIENT_PID
+```
+
+Thay `PATIENT_PID` bằng PID Java của Patient Service. Script yêu cầu kho cấu hình
+sạch, tạo commit cho lời chào Academy và Education, gọi refresh, kiểm tra cache trước
+refresh và nội dung sau refresh. Script xác minh PID/thời điểm bắt đầu tiến trình
+không đổi và để lại lời chào Education trong kho Git sau khi hoàn tất.
+
+`WelcomeRefreshTest` kiểm tra qua HTTP thật: controller giữ giá trị đã inject cho
+đến khi gọi Actuator refresh, sau đó trả giá trị mới. Test dùng nguồn cấu hình trong
+bộ nhớ; script bên trên kiểm tra đầy đủ với Git và Config Server đang chạy.
+
+### Kết quả kiểm thử bài 4
+
+- Build đạt; 3 test controller bệnh nhân và 1 test Actuator/RefreshScope đều đạt.
+- Đã chạy với kho Git cục bộ và Config Server thật: trước refresh trả Academy,
+  sau refresh trả Education với tiếng Việt đúng UTF-8.
+- Response refresh chứa `app.welcome`; PID và thời điểm khởi động tiến trình
+  Patient Service giữ nguyên trong toàn bộ quy trình.
+
 ## Nộp bài
 
 Repository này chứa Patient Service, cấu hình Git mẫu và script tái tạo kho cấu hình.
-Dán link repository này vào bài tập 8902 hoặc 8903 tương ứng trên Rikkei.
+Dán link repository này vào bài tập 8902, 8903 hoặc 8904 tương ứng trên Rikkei.
 
 Tham khảo: [Spring Cloud Config Client](https://docs.spring.io/spring-cloud-config/reference/4.3/client.html).
 
 Tham khảo Profiles: [Spring Cloud Config Environment Repository](https://docs.spring.io/spring-cloud-config/reference/server/environment-repository.html).
+
+Tham khảo Refresh: [Spring Cloud Context Refresh Scope](https://docs.spring.io/spring-cloud-commons/reference/spring-cloud-commons/application-context-services.html).

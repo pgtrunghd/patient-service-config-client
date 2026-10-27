@@ -26,6 +26,6 @@ for config_file in "${config_files[@]}"; do
 done
 git -C "$repo_dir" add -- "${config_files[@]}"
 if ! git -C "$repo_dir" diff --cached --quiet -- "${config_files[@]}"; then
-    git -C "$repo_dir" commit -m "Add MySQL dev and PostgreSQL prod profiles" --only -- "${config_files[@]}"
+    git -C "$repo_dir" commit -m "Update patient service configuration" --only -- "${config_files[@]}"
 fi
 echo "Kho cau hinh da san sang: $repo_dir"
