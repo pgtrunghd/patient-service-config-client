@@ -20,12 +20,9 @@ if [[ "$(git -C "$repo_dir" symbolic-ref --short HEAD)" != main ]]; then
     echo "Hay chuyen kho cau hinh sang nhanh main truoc khi chay script." >&2
     exit 1
 fi
-config_files=(patient-service.properties patient-service-dev.properties patient-service-prod.properties)
-for config_file in "${config_files[@]}"; do
-    cp "$project_dir/config-repo/$config_file" "$repo_dir/$config_file"
-done
-git -C "$repo_dir" add -- "${config_files[@]}"
-if ! git -C "$repo_dir" diff --cached --quiet -- "${config_files[@]}"; then
-    git -C "$repo_dir" commit -m "Update patient service configuration" --only -- "${config_files[@]}"
+cp "$project_dir/config-repo/patient-service.properties" "$repo_dir/patient-service.properties"
+git -C "$repo_dir" add patient-service.properties
+if ! git -C "$repo_dir" diff --cached --quiet -- patient-service.properties; then
+    git -C "$repo_dir" commit -m "Move patient PostgreSQL configuration to Config Server" --only -- patient-service.properties
 fi
 echo "Kho cau hinh da san sang: $repo_dir"
